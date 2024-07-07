@@ -1,35 +1,12 @@
+mod cli;
 use anyhow::Result;
-use clap::{Parser, Subcommand};
-use cliclack::{input, intro, multiselect, note, select};
+use clap::Parser;
+use cli::*;
+use cliclack::progress_bar;
+use cliclack::{input, intro, multiselect, select};
+use nih_plug_xtask::build;
 use nih_plug_xtask::bundle;
-use nih_plug_xtask::{build, chdir_workspace_root};
 use std::{env::current_dir, fs::File, io::Write, process::Command};
-/// NIH-Plug CLI.
-#[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
-struct Cli {
-    #[command(subcommand)]
-    command: Commands,
-}
-#[derive(Subcommand, Debug)]
-enum Commands {
-    /// Create a new NIH-Plug project through a step-by-step, interactive CLI.
-    New,
-    /// Compile an existing NIH-Plug project
-    Bundle {
-        /// Package(s) to compile.
-        packages: Vec<String>,
-
-        /// Any other arguments supported by cargo, such as profile arguments (`--release`), may be supplied here.
-        /// To pass these arguments, you must first include `--`. E.g. `-- --release --profile ...`
-        #[arg(raw = true)]
-        other_args: Vec<String>,
-    },
-
-    BundleUniversal {
-        packages: String,
-    },
-}
 
 #[derive(boilerplate::Boilerplate)]
 struct LibTxt {
@@ -43,21 +20,23 @@ struct LibTxt {
 }
 
 fn main() -> Result<()> {
-    // chdir_workspace_root()?;
-    let cargo_metadata = cargo_metadata::MetadataCommand::new()
-        .manifest_path("./Cargo.toml")
-        .exec()
-        .unwrap(); // TODO
-    let target_dir = cargo_metadata.target_directory.as_std_path();
-
     let args = Cli::parse();
     match args.command {
-        Commands::New => create_project()?,
-
+        Commands::New {
+            first_build: should_build,
+            other_args,
+        } => create_project(should_build, other_args)?,
         Commands::Bundle {
             packages,
             other_args,
         } => {
+            // chdir_workspace_root()?;
+            let cargo_metadata = cargo_metadata::MetadataCommand::new()
+                .manifest_path("./Cargo.toml")
+                .exec()
+                .unwrap(); // TODO
+            let target_dir = cargo_metadata.target_directory.as_std_path();
+
             build(&packages, &other_args)?;
 
             bundle(target_dir, &packages[0], &other_args, false)?;
@@ -71,13 +50,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn create_project() -> Result<()> {
-    let project_name: String = input("Project & Directory Name:")
-        .placeholder("my_plugin")
-        .required(true)
-        .interact()
-        .unwrap();
-
+fn create_project(should_build: bool, _other_args: Vec<String>) -> Result<()> {
     // default values also are placeholders
     let default_vendor = "NIH-Plug";
     let default_name = "Gain";
@@ -86,29 +59,34 @@ fn create_project() -> Result<()> {
     let default_vst_id = "Exactly16Chars!!";
 
     intro("create-nih-plug-project").unwrap();
-    note("Note", "Press <Enter> for a field to use default value").unwrap();
+    let project_name: String =
+        input("What's your project named? (NOT the same as your plugin name)")
+            .placeholder("gain")
+            .required(true)
+            .interact()
+            .unwrap();
 
-    let plugin_name: String = input("Plugin Name: ()")
+    let plugin_name: String = input("What's your plugin named?")
         .placeholder(default_name)
         .default_input(default_name)
         .interact()
         .unwrap();
-    let vendor: String = input("Author/Vendor:")
+    let vendor: String = input("Author?")
         .placeholder(default_vendor)
         .default_input(default_vendor)
         .interact()
         .unwrap();
-    let url: String = input("URL:")
+    let url: String = input("URL?")
         .placeholder(default_url)
         .default_input(default_url)
         .interact()
         .unwrap();
-    let email: String = input("Email:")
+    let email: String = input("Email?")
         .placeholder(default_email)
         .default_input(default_email)
         .interact()
         .unwrap();
-    let vst_id: String = input("VST ID:")
+    let vst_id: String = input("VST ID?")
         .placeholder(default_vst_id)
         .default_input(default_vst_id)
         .validate(|input: &String| {
@@ -120,7 +98,7 @@ fn create_project() -> Result<()> {
         })
         .interact()
         .unwrap();
-    let midi_config: String = select("MIDI Config:")
+    let midi_config: String = select("MIDI Config?")
         .item("None", "None", "The plugin will not receive MIDI events.")
         .item("Basic", "Basic", "The plugin receives note on/off/choke events, pressure, and possibly standardized expression types.")
         .item(
@@ -137,7 +115,7 @@ fn create_project() -> Result<()> {
         .item("Spatial", "Spatial", "")
         .interact()
         .unwrap();
-    let other_sub_categories = [
+    let other_sub_categories_list = [
         "Analyzer",
         "Delay",
         "Distortion",
@@ -159,32 +137,33 @@ fn create_project() -> Result<()> {
         "Tools",
         "UpDownmix",
     ];
-    let mut multi = multiselect("Other VST categories:");
-    for cat in other_sub_categories {
-        multi = multi.item(cat, cat, "");
-    }
-    multi.interact().unwrap();
 
+    let mut multi_builder = multiselect("Other VST categories? (Optional)");
+    for cat in other_sub_categories_list {
+        multi_builder = multi_builder.item(cat, cat, "");
+    }
+    let mut other_sub_categories = multi_builder.required(false).interact().unwrap();
+
+    other_sub_categories.insert(0, main_vst_sub_category);
+    let concat_sub_categories: Vec<_> = other_sub_categories
+        .iter()
+        .map(|cat| format!("Vst3SubCategory::{}", cat))
+        .collect();
+
+    let vst_sub_categories = concat_sub_categories.join(", ");
+    // END OF USER INPUT
     let current_dir = current_dir().unwrap();
     let project_path = current_dir.join(&project_name);
 
+    let progress = progress_bar(100);
+    progress.start("Creating a new plugin...");
+
+    progress.stop("Done!");
+
     // create a new project with cargo
     // TODO: make sure user has cargo installed
-    let command = format!("cargo new --lib {}", project_name);
-
-    // curse you windows!
-    if cfg!(target_os = "windows") {
-        Command::new("cmd")
-            .args(["/C", &command])
-            .output()
-            .expect("failed to execute process")
-    } else {
-        Command::new("sh")
-            .arg("-c")
-            .arg(&command)
-            .output()
-            .expect("failed to execute process")
-    };
+    let command = format!("cargo new --lib {} --vcs git", project_name);
+    exec_command(&command);
 
     /*
      * With Cargo.toml, we need to do some things
@@ -192,6 +171,9 @@ fn create_project() -> Result<()> {
      * 2. indicate that this project is a cdylib
      */
 
+    // TODO:
+    // is there a better way to do this??
+    // possibly with toml crate
     let mut file = File::options()
         .append(true)
         .open(project_path.join("Cargo.toml"))
@@ -199,16 +181,10 @@ fn create_project() -> Result<()> {
 
     writeln!(file, "nih_plug = {{ git = \"https://github.com/robbert-vdh/nih-plug.git\", features = [\"assert_process_allocs\"] }}\n\n[lib]\ncrate-type = [\"cdylib\"]\n")
     .unwrap();
-
-    let gitignore_path = project_path.join(".gitignore");
-    let mut gitignore = File::create(gitignore_path).unwrap();
-    gitignore.write_all(b"/target").unwrap();
-
     // TODO:
-    // need readme
+    // need readme?
 
     // now we're going to generate our lib.rs file from our template and overwrite the existing lib.rs
-
     let lib_path = project_path.join("src").join("lib.rs");
     let mut lib = File::options().write(true).open(lib_path).unwrap();
     let output = LibTxt {
@@ -218,12 +194,29 @@ fn create_project() -> Result<()> {
         email,
         vst_id,
         midi_config,
-        sub_categories: "".to_string(),
+        sub_categories: vst_sub_categories,
     }
     .to_string();
 
     lib.write_all(output.as_bytes())
         .expect("Error writing file");
 
+    if should_build {
+        println!("COMPILING...");
+        todo!();
+    }
+
     Ok(())
+}
+
+fn exec_command(command: &str) {
+    let (proc, arg) = if cfg!(target_os = "windows") {
+        ("cmd", "/C")
+    } else {
+        ("sh", "-c")
+    };
+    Command::new(proc)
+        .args([arg, command])
+        .output()
+        .expect("Error running command");
 }
