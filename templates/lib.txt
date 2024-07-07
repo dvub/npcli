@@ -62,7 +62,7 @@ impl Plugin for {{self.plugin_name}} {
         },
     ];
 
-    const MIDI_INPUT: MidiConfig = MidiConfig::None;
+    const MIDI_INPUT: MidiConfig = MidiConfig::{{self.midi_config}};
     const SAMPLE_ACCURATE_AUTOMATION: bool = true;
     type SysExMessage = ();
     type BackgroundTask = ();
@@ -94,7 +94,7 @@ impl Plugin for {{self.plugin_name}} {
 impl Vst3Plugin for {{self.plugin_name}} {
     const VST3_CLASS_ID: [u8; 16] = *b"{{self.vst_id}}";
     const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
-        &[Vst3SubCategory::Fx, Vst3SubCategory::Tools];
+        &[{{self.sub_categories}}];
 }
 
 nih_export_vst3!({{self.plugin_name}});
