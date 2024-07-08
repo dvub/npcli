@@ -11,13 +11,9 @@ pub struct Cli {
 pub enum Commands {
     /// Create a new NIH-Plug project through a step-by-step, interactive CLI.
     New {
-        /// Use this flag if you want an initial compilation. This is the same as running bundle <package>.
-        #[arg(short = 'b', long)]
-        first_build: bool,
-        /// If first-build is enabled, any other arguments supported by cargo may be supplied here.
-        /// To pass these arguments, you must first include `--`. E.g. `-- --release`
-        #[arg(raw = true, requires = "first_build")]
-        other_args: Vec<String>,
+        /// Use this flag if you want to skip initial compilation.
+        #[arg(long)]
+        skip_first_build: bool,
     },
     /// Compile an existing NIH-Plug project
     Bundle {

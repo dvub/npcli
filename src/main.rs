@@ -2,12 +2,16 @@ mod cli;
 use anyhow::Result;
 use clap::Parser;
 use cli::*;
-use cliclack::progress_bar;
+
 use cliclack::{input, intro, multiselect, select};
 use nih_plug_xtask::build;
 use nih_plug_xtask::bundle;
+use std::env::set_current_dir;
+use std::io::Read;
+use std::path::Path;
 use std::{env::current_dir, fs::File, io::Write, process::Command};
-
+use toml::Value::String as TomlString;
+use toml::Value::{Array, Table};
 #[derive(boilerplate::Boilerplate)]
 struct LibTxt {
     plugin_name: String,
@@ -22,10 +26,7 @@ struct LibTxt {
 fn main() -> Result<()> {
     let args = Cli::parse();
     match args.command {
-        Commands::New {
-            first_build: should_build,
-            other_args,
-        } => create_project(should_build, other_args)?,
+        Commands::New { skip_first_build } => create_project(skip_first_build)?,
         Commands::Bundle {
             packages,
             other_args,
@@ -50,7 +51,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn create_project(should_build: bool, _other_args: Vec<String>) -> Result<()> {
+fn create_project(skip_first_build: bool) -> Result<()> {
     // default values also are placeholders
     let default_vendor = "NIH-Plug";
     let default_name = "Gain";
@@ -144,6 +145,15 @@ fn create_project(should_build: bool, _other_args: Vec<String>) -> Result<()> {
     }
     let mut other_sub_categories = multi_builder.required(false).interact().unwrap();
 
+    let _wants_clap = select("Would you like to set up a CLAP export?")
+        .item(true, "Yes!", "")
+        .item(false, "No", "")
+        .initial_value(false)
+        .interact()
+        .unwrap();
+
+    // END OF USER INPUT
+
     other_sub_categories.insert(0, main_vst_sub_category);
     let concat_sub_categories: Vec<_> = other_sub_categories
         .iter()
@@ -151,62 +161,97 @@ fn create_project(should_build: bool, _other_args: Vec<String>) -> Result<()> {
         .collect();
 
     let vst_sub_categories = concat_sub_categories.join(", ");
-    // END OF USER INPUT
     let current_dir = current_dir().unwrap();
     let project_path = current_dir.join(&project_name);
 
-    let progress = progress_bar(100);
-    progress.start("Creating a new plugin...");
+    cargo_new(&project_name);
+    write_to_toml(&project_path)?;
+    write_to_lib(
+        &project_path,
+        &LibTxt {
+            plugin_name,
+            vendor,
+            url,
+            email,
+            vst_id,
+            midi_config,
+            sub_categories: vst_sub_categories,
+        },
+    );
 
-    progress.stop("Done!");
+    if skip_first_build {
+        return Ok(());
+    }
 
+    let args = &["--release".to_owned()];
+    set_current_dir(&project_path).unwrap();
+    build(&[project_name.clone()], args)?;
+    bundle(&project_path.join("target"), &project_name, args, false)?;
+
+    Ok(())
+}
+// i may have overcomplicated this part by quite a lot,
+// but eh
+fn write_to_toml(project_path: &Path) -> Result<()> {
+    // prereq: open file, read into a string, and parse the string with toml
+    let mut file_read = File::options()
+        .read(true)
+        .open(project_path.join("Cargo.toml"))?;
+    let mut str_contents = String::new();
+    file_read.read_to_string(&mut str_contents)?;
+    let mut value = str_contents.parse::<toml::Table>()?;
+
+    // 1. add nih_plug as a dependency
+    let dependencies = value
+        .get_mut("dependencies")
+        .unwrap()
+        .as_table_mut()
+        .unwrap();
+
+    let mut nih_plug_table = toml::Table::new();
+    nih_plug_table.insert(
+        "git".to_owned(),
+        TomlString("https://github.com/robbert-vdh/nih-plug.git".to_owned()),
+    );
+    dependencies.insert("nih_plug".to_owned(), Table(nih_plug_table));
+
+    // declare that this is a cdylib
+    let mut crate_type_table = toml::Table::new();
+    crate_type_table.insert(
+        "crate_type".to_owned(),
+        Array(vec![TomlString("cdylib".to_owned())]),
+    );
+    value.insert("lib".to_owned(), Table(crate_type_table));
+
+    // write it all back out
+    let new_str = toml::to_string(&value).unwrap();
+    // we must do this again to use truncate.
+    // TODO: don't open file twice i guess
+    let mut file_write = File::options()
+        .truncate(true)
+        .write(true)
+        .open(project_path.join("Cargo.toml"))
+        .unwrap();
+
+    file_write.write_all(new_str.as_bytes()).unwrap();
+    Ok(())
+}
+
+fn write_to_lib(project_path: &Path, data: &LibTxt) {
+    // now we're going to generate our lib.rs file from our template and overwrite the existing lib.rs
+    let lib_path = project_path.join("src").join("lib.rs");
+    let mut lib_file = File::options().write(true).open(lib_path).unwrap();
+    let output = data.to_string();
+    lib_file
+        .write_all(output.as_bytes())
+        .expect("Error writing file");
+}
+
+fn cargo_new(project_name: &str) {
     // create a new project with cargo
     // TODO: make sure user has cargo installed
     let command = format!("cargo new --lib {} --vcs git", project_name);
     exec_command(&command);
-
-    /*
-     * With Cargo.toml, we need to do some things
-     * 1. add nih-plug using the git link
-     * 2. indicate that this project is a cdylib
-     */
-
-    // TODO:
-    // is there a better way to do this??
-    // possibly with toml crate
-    let mut file = File::options()
-        .append(true)
-        .open(project_path.join("Cargo.toml"))
-        .unwrap();
-
-    writeln!(file, "nih_plug = {{ git = \"https://github.com/robbert-vdh/nih-plug.git\", features = [\"assert_process_allocs\"] }}\n\n[lib]\ncrate-type = [\"cdylib\"]\n")
-    .unwrap();
-    // TODO:
-    // need readme?
-
-    // now we're going to generate our lib.rs file from our template and overwrite the existing lib.rs
-    let lib_path = project_path.join("src").join("lib.rs");
-    let mut lib = File::options().write(true).open(lib_path).unwrap();
-    let output = LibTxt {
-        plugin_name,
-        vendor,
-        url,
-        email,
-        vst_id,
-        midi_config,
-        sub_categories: vst_sub_categories,
-    }
-    .to_string();
-
-    lib.write_all(output.as_bytes())
-        .expect("Error writing file");
-
-    if should_build {
-        println!("COMPILING...");
-        todo!();
-    }
-
-    Ok(())
 }
 
 fn exec_command(command: &str) {
