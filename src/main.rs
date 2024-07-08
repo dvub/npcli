@@ -2,7 +2,6 @@ mod cli;
 use anyhow::Result;
 use clap::Parser;
 use cli::*;
-
 use cliclack::{input, intro, multiselect, select};
 use nih_plug_xtask::build;
 use nih_plug_xtask::bundle;
@@ -12,6 +11,13 @@ use std::path::Path;
 use std::{env::current_dir, fs::File, io::Write, process::Command};
 use toml::Value::String as TomlString;
 use toml::Value::{Array, Table};
+
+// TODO:
+// - add more comments
+// - add documentation
+// - finish bundle/bundle-universal
+// - finish new
+
 #[derive(boilerplate::Boilerplate)]
 struct LibTxt {
     plugin_name: String,
@@ -23,10 +29,28 @@ struct LibTxt {
     sub_categories: String,
 }
 
+#[derive(boilerplate::Boilerplate)]
+struct ClapTxt {
+    plugin_name: String,
+    clap_id: String,
+    clap_description: String,
+    clap_features: String,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+enum ExportTypes {
+    Clap,
+    Standalone,
+}
+
 fn main() -> Result<()> {
     let args = Cli::parse();
     match args.command {
-        Commands::New { skip_first_build } => create_project(skip_first_build)?,
+        Commands::New {
+            skip_build,
+            defaults,
+            name,
+        } => create_project(name, defaults, skip_build)?,
         Commands::Bundle {
             packages,
             other_args,
@@ -51,42 +75,77 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn create_project(skip_first_build: bool) -> Result<()> {
+fn create_project(name: Option<String>, defaults: bool, skip_first_build: bool) -> Result<()> {
+    // TODO: at this top level, instead of using ? operator, actually write user-facing errors!!
+
     // default values also are placeholders
     let default_vendor = "NIH-Plug";
     let default_name = "Gain";
     let default_url = "https://github.com/robbert-vdh/nih-plug";
     let default_email = "info@example.com";
     let default_vst_id = "Exactly16Chars!!";
+    let default_midi_config = "None";
+    let default_sub_category = "Vst3SubCategory::Fx";
+
+    /*
+        if defaults {
+            // we can safely unwrap() because we specified that --name MUST be set if --defaults is used
+            let project_name = name.unwrap();
+
+            let current_dir = current_dir().unwrap();
+            let project_path = current_dir.join(&project_name);
+
+            cargo_new(&project_name);
+            write_to_toml(&project_path)?;
+            write_to_lib(
+                &project_path,
+                &LibTxt {
+                    plugin_name: default_name.to_owned(),
+                    vendor: default_vendor.to_owned(),
+                    url: default_url.to_owned(),
+                    email: default_email.to_owned(),
+                    vst_id: default_vst_id.to_owned(),
+                    midi_config: default_midi_config.to_owned(),
+                    sub_categories: default_sub_category.to_owned(),
+                },
+            )?;
+
+            if skip_first_build {
+                return Ok(());
+            }
+
+            let args = &["--release".to_owned()];
+            set_current_dir(&project_path).unwrap();
+            build(&[project_name.clone()], args)?;
+            bundle(&project_path.join("target"), &project_name, args, false)?;
+
+            return Ok(());
+        }
+    */
 
     intro("create-nih-plug-project").unwrap();
-    let project_name: String =
+    let project_name: String = name.unwrap_or(
         input("What's your project named? (NOT the same as your plugin name)")
             .placeholder("gain")
             .required(true)
-            .interact()
-            .unwrap();
-
+            .interact()?,
+    );
     let plugin_name: String = input("What's your plugin named?")
         .placeholder(default_name)
         .default_input(default_name)
-        .interact()
-        .unwrap();
+        .interact()?;
     let vendor: String = input("Author?")
         .placeholder(default_vendor)
         .default_input(default_vendor)
-        .interact()
-        .unwrap();
+        .interact()?;
     let url: String = input("URL?")
         .placeholder(default_url)
         .default_input(default_url)
-        .interact()
-        .unwrap();
+        .interact()?;
     let email: String = input("Email?")
         .placeholder(default_email)
         .default_input(default_email)
-        .interact()
-        .unwrap();
+        .interact()?;
     let vst_id: String = input("VST ID?")
         .placeholder(default_vst_id)
         .default_input(default_vst_id)
@@ -97,8 +156,7 @@ fn create_project(skip_first_build: bool) -> Result<()> {
                 Ok(())
             }
         })
-        .interact()
-        .unwrap();
+        .interact()?;
     let midi_config: String = select("MIDI Config?")
         .item("None", "None", "The plugin will not receive MIDI events.")
         .item("Basic", "Basic", "The plugin receives note on/off/choke events, pressure, and possibly standardized expression types.")
@@ -107,15 +165,14 @@ fn create_project(skip_first_build: bool) -> Result<()> {
             "Full",
             "The plugin receives full MIDI CCs as well as pitch bend information.",
         )
-        .interact()
-        .unwrap()
+        .initial_value("None")
+        .interact()?
         .to_owned();
     let main_vst_sub_category = select("Main VST category:")
         .item("Fx", "Fx", "")
         .item("Instrument", "Instrument", "")
         .item("Spatial", "Spatial", "")
-        .interact()
-        .unwrap();
+        .interact()?;
     let other_sub_categories_list = [
         "Analyzer",
         "Delay",
@@ -143,14 +200,49 @@ fn create_project(skip_first_build: bool) -> Result<()> {
     for cat in other_sub_categories_list {
         multi_builder = multi_builder.item(cat, cat, "");
     }
-    let mut other_sub_categories = multi_builder.required(false).interact().unwrap();
+    let mut other_sub_categories = multi_builder.required(false).interact()?;
 
-    let _wants_clap = select("Would you like to set up a CLAP export?")
-        .item(true, "Yes!", "")
-        .item(false, "No", "")
-        .initial_value(false)
-        .interact()
-        .unwrap();
+    let other_export_types = multiselect("Other export types?")
+        .item(
+            ExportTypes::Clap,
+            "CLAP",
+            "See https://cleveraudio.org/ for more info",
+        )
+        .item(
+            ExportTypes::Standalone,
+            "Standalone",
+            "Creates a standalone application that can run outside of a DAW/VST host",
+        )
+        .required(false)
+        .interact()?;
+
+    // we need a series of prompts to handle CLAP export configuration.
+    if other_export_types.contains(&ExportTypes::Clap) {
+        let default_clap_id = "com.moist-plugins-gmbh.gain";
+        let default_clap_description = "A smoothed gain parameter example plugin";
+        let default_clap_features = "ClapFeature::Utility";
+        // clap id
+        let clap_id: String = input("CLAP ID?")
+            .placeholder(&default_clap_id)
+            .default_input(&default_clap_id)
+            .interact()?;
+
+        // clap description
+        let clap_description: String = input("CLAP ID?")
+            .placeholder(&default_clap_description)
+            .default_input(&default_clap_description)
+            .interact()?;
+
+        // clap features
+        todo!();
+        let _d = ClapTxt {
+            plugin_name,
+            clap_id,
+            clap_description,
+            clap_features: todo!(),
+        };
+    }
+    if other_export_types.contains(&ExportTypes::Standalone) {}
 
     // END OF USER INPUT
 
@@ -177,14 +269,14 @@ fn create_project(skip_first_build: bool) -> Result<()> {
             midi_config,
             sub_categories: vst_sub_categories,
         },
-    );
+    )?;
 
     if skip_first_build {
         return Ok(());
     }
 
     let args = &["--release".to_owned()];
-    set_current_dir(&project_path).unwrap();
+    set_current_dir(&project_path)?;
     build(&[project_name.clone()], args)?;
     bundle(&project_path.join("target"), &project_name, args, false)?;
 
@@ -193,6 +285,9 @@ fn create_project(skip_first_build: bool) -> Result<()> {
 // i may have overcomplicated this part by quite a lot,
 // but eh
 fn write_to_toml(project_path: &Path) -> Result<()> {
+    // TODO:
+    // figure out how to deal with all of these unwrap() calls
+    //
     // prereq: open file, read into a string, and parse the string with toml
     let mut file_read = File::options()
         .read(true)
@@ -215,7 +310,7 @@ fn write_to_toml(project_path: &Path) -> Result<()> {
     );
     dependencies.insert("nih_plug".to_owned(), Table(nih_plug_table));
 
-    // declare that this is a cdylib
+    // 2. declare that this is a cdylib
     let mut crate_type_table = toml::Table::new();
     crate_type_table.insert(
         "crate_type".to_owned(),
@@ -237,23 +332,24 @@ fn write_to_toml(project_path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn write_to_lib(project_path: &Path, data: &LibTxt) {
+fn write_to_lib(project_path: &Path, data: &LibTxt) -> Result<()> {
     // now we're going to generate our lib.rs file from our template and overwrite the existing lib.rs
     let lib_path = project_path.join("src").join("lib.rs");
-    let mut lib_file = File::options().write(true).open(lib_path).unwrap();
+    let mut lib_file = File::options().write(true).open(lib_path)?;
     let output = data.to_string();
-    lib_file
-        .write_all(output.as_bytes())
-        .expect("Error writing file");
+    lib_file.write_all(output.as_bytes())?;
+
+    Ok(())
 }
 
 fn cargo_new(project_name: &str) {
-    // create a new project with cargo
+    // creates a new project with cargo
     // TODO: make sure user has cargo installed
     let command = format!("cargo new --lib {} --vcs git", project_name);
     exec_command(&command);
 }
 
+// is this over-engineering?
 fn exec_command(command: &str) {
     let (proc, arg) = if cfg!(target_os = "windows") {
         ("cmd", "/C")

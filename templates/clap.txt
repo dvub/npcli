@@ -1,0 +1,24 @@
+/*
+impl ClapPlugin for {{self.plugin_name}} {
+    const CLAP_ID: &'static str = "com.moist-plugins-gmbh.gain";
+    const CLAP_DESCRIPTION: Option<&'static str> = Some("A smoothed gain parameter example plugin");
+    const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
+    const CLAP_SUPPORT_URL: Option<&'static str> = None;
+    const CLAP_FEATURES: &'static [ClapFeature] = &[
+        ClapFeature::AudioEffect,
+        ClapFeature::Stereo,
+        ClapFeature::Mono,
+        ClapFeature::Utility,
+    ];
+}
+*/
+
+impl ClapPlugin for {{self.plugin_name}} {
+    const CLAP_ID: &'static str = {{self.clap_id}};
+    const CLAP_DESCRIPTION: Option<&'static str> = {{self.clap_description}};
+    const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
+    const CLAP_SUPPORT_URL: Option<&'static str> = None;
+    const CLAP_FEATURES: &'static [ClapFeature] = &[{{self.clap_features}}];
+}
+
+nih_export_clap!({{self.plugin_name}});

@@ -9,11 +9,20 @@ pub struct Cli {
 }
 #[derive(Subcommand, Debug)]
 pub enum Commands {
-    /// Create a new NIH-Plug project through a step-by-step, interactive CLI.
+    /// Create a new NIH-Plug project.
     New {
+        /// Enabling this will skip ALL of the custom input and simply create a project with the default inputs.
+        ///
+        #[arg(short, long, requires = "name")]
+        defaults: bool,
+
+        /// Optionally, provide the project (NOT plugin) name here. If you enabled the defaults flag, you MUST supply something here.
+        #[arg(long)]
+        name: Option<String>,
+
         /// Use this flag if you want to skip initial compilation.
         #[arg(long)]
-        skip_first_build: bool,
+        skip_build: bool,
     },
     /// Compile an existing NIH-Plug project
     Bundle {
