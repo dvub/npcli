@@ -30,6 +30,12 @@ struct LibTxt {
 }
 
 #[derive(boilerplate::Boilerplate)]
+struct MainTxt {
+    plugin_name: String,
+    project_name: String,
+}
+
+#[derive(boilerplate::Boilerplate)]
 struct ClapTxt {
     plugin_name: String,
     clap_id: String,
@@ -88,6 +94,8 @@ fn create_project(name: Option<String>, defaults: bool, skip_first_build: bool) 
     let default_sub_category = "Vst3SubCategory::Fx";
     // if the user supplies `--defaults`, we will use these
     let mut clap_data = None;
+    let mut main_txt = None;
+
     let mut lib = LibTxt {
         plugin_name: default_name.to_string(),
         vendor: default_vendor.to_owned(),
@@ -104,6 +112,9 @@ fn create_project(name: Option<String>, defaults: bool, skip_first_build: bool) 
             .required(true)
             .interact()?,
     );
+
+    let current_dir = current_dir().unwrap();
+    let project_path = current_dir.join(&project_name);
 
     if !defaults {
         intro("create-nih-plug-project").unwrap();
@@ -139,7 +150,7 @@ fn create_project(name: Option<String>, defaults: bool, skip_first_build: bool) 
         .item("None", "None", "The plugin will not receive MIDI events.")
         .item("Basic", "Basic", "The plugin receives note on/off/choke events, pressure, and possibly standardized expression types.")
         .item(
-            "MidiCC",
+            "MidiCCs",
             "Full",
             "The plugin receives full MIDI CCs as well as pitch bend information.",
         )
@@ -259,7 +270,15 @@ fn create_project(name: Option<String>, defaults: bool, skip_first_build: bool) 
                 clap_features: clap_features.to_owned(),
             });
         }
-        if other_export_types.contains(&ExportTypes::Standalone) {}
+        if other_export_types.contains(&ExportTypes::Standalone) {
+            main_txt = Some(
+                MainTxt {
+                    plugin_name: plugin_name.clone(),
+                    project_name: project_name.clone(),
+                }
+                .to_string(),
+            );
+        }
 
         lib = LibTxt {
             plugin_name,
@@ -274,11 +293,14 @@ fn create_project(name: Option<String>, defaults: bool, skip_first_build: bool) 
     // END OF USER INPUT
 
     // now, create/modify files
-    let current_dir = current_dir().unwrap();
-    let project_path = current_dir.join(&project_name);
     cargo_new(&project_name);
     write_to_toml(&project_path)?;
     write_to_lib(&project_path, &lib, clap_data)?;
+
+    let mut main_file = File::create(project_path.join("src").join("main.rs")).unwrap();
+    if let Some(main) = main_txt {
+        main_file.write_all(main.as_bytes()).unwrap();
+    }
 
     if skip_first_build {
         return Ok(());
@@ -363,13 +385,23 @@ fn write_to_toml(project_path: &Path) -> Result<()> {
         "git".to_owned(),
         TomlString("https://github.com/robbert-vdh/nih-plug.git".to_owned()),
     );
+    nih_plug_table.insert(
+        "features".to_owned(),
+        Array(vec![
+            TomlString("assert_process_allocs".to_owned()),
+            TomlString("standalone".to_owned()),
+        ]),
+    );
     dependencies.insert("nih_plug".to_owned(), Table(nih_plug_table));
 
     // 2. declare that this is a cdylib
     let mut crate_type_table = toml::Table::new();
     crate_type_table.insert(
         "crate_type".to_owned(),
-        Array(vec![TomlString("cdylib".to_owned())]),
+        Array(vec![
+            TomlString("cdylib".to_owned()),
+            TomlString("lib".to_owned()),
+        ]),
     );
     value.insert("lib".to_owned(), Table(crate_type_table));
 
