@@ -15,9 +15,7 @@ struct LibTxt {
     vendor: String,
     url: String,
     email: String,
-    vst_id: String,
     midi_config: String,
-    sub_categories: String,
 }
 
 #[derive(boilerplate::Boilerplate)]
@@ -34,8 +32,16 @@ struct ClapTxt {
     clap_features: String,
 }
 
+#[derive(boilerplate::Boilerplate)]
+struct Vst3Txt {
+    plugin_name: String,
+    vst_id: String,
+    sub_categories: String,
+}
+
 #[derive(Clone, PartialEq, Eq)]
 enum ExportTypes {
+    Vst3,
     Clap,
     Standalone,
 }
@@ -50,9 +56,9 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
     let default_email = "info@example.com";
     let default_vst_id = "Exactly16Chars!!";
     let default_midi_config = "None";
-    let default_sub_category = "Vst3SubCategory::Fx";
+
     // if the user supplies `--defaults`, we will use these
-    let mut standalone = false;
+    let mut vst_data = None;
     let mut clap_data = None;
     let mut main_txt = None;
 
@@ -61,13 +67,11 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
         vendor: default_vendor.to_owned(),
         url: default_url.to_owned(),
         email: default_email.to_owned(),
-        vst_id: default_vst_id.to_owned(),
         midi_config: default_midi_config.to_owned(),
-        sub_categories: default_sub_category.to_owned(),
     };
 
     let project_name: String = name.unwrap_or(
-        input("What's your project named? (NOT the same as your plugin name)")
+        input("What's your project named? (NOT the actual plugin name)")
             .placeholder("gain")
             .required(true)
             .interact()?,
@@ -76,7 +80,11 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
     let current_dir = current_dir().unwrap();
     let project_path = current_dir.join(&project_name);
 
+    // TODO:
+    // there is probably a way to refactor this to save on this indent,
+    // i just didnt figure it out :(
     if !defaults {
+        // get user input for basic plugin info
         intro("create-nih-plug-project").unwrap();
 
         let plugin_name: String = input("What's your plugin named?")
@@ -95,17 +103,15 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
             .placeholder(default_email)
             .default_input(default_email)
             .interact()?;
-        let vst_id: String = input("VST ID?")
-            .placeholder(default_vst_id)
-            .default_input(default_vst_id)
-            .validate(|input: &String| {
-                if input.len() != 16 {
-                    Err("VST3 ID must be exactly 16 characters.")
-                } else {
-                    Ok(())
-                }
-            })
-            .interact()?;
+
+        /*
+         *
+         * NOTE:
+         * Audio config is not included here,
+         * because some DAWs (Ableton, for example) do NOT support plugins with "weird" audio configs (0 outputs, etc.)
+         *
+         */
+
         let midi_config: String = select("MIDI Config?")
         .item("None", "None", "The plugin will not receive MIDI events.")
         .item("Basic", "Basic", "The plugin receives note on/off/choke events, pressure, and possibly standardized expression types.")
@@ -118,36 +124,9 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
         .interact()?
         .to_owned();
 
-        let vst_sub_categories = build_category_list(
-            "Main VST Subcategory?",
-            vec!["Fx", "Instrument", "Spatial"],
-            "Other VST Subcategories?",
-            vec![
-                "Analyzer",
-                "Delay",
-                "Distortion",
-                "Drum",
-                "Dynamics",
-                "Eq",
-                "External",
-                "Filter",
-                "Generator",
-                "Mastering",
-                "Modulation",
-                "Network",
-                "Piano",
-                "PitchShift",
-                "Restoration",
-                "Reverb",
-                "Sampler",
-                "Synth",
-                "Tools",
-                "UpDownmix",
-            ],
-            "Vst3SubCategory",
-        )?;
-
-        let other_export_types = multiselect("Other export types?")
+        // beyond the basic info, we need to know which exports to set up
+        let export_types = multiselect("Other export types?")
+            .item(ExportTypes::Vst3, "VST3", "")
             .item(
                 ExportTypes::Clap,
                 "CLAP",
@@ -158,12 +137,60 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
                 "Standalone",
                 "Creates a standalone application that can run outside of a DAW/VST host",
             )
-            .required(false)
+            .initial_values(vec![ExportTypes::Vst3])
+            .required(true)
             .interact()?;
 
-        // we need a series of prompts to handle CLAP export configuration.
+        // setup for VST
+        if export_types.contains(&ExportTypes::Vst3) {
+            let vst_id: String = input("VST ID?")
+                .placeholder(default_vst_id)
+                .default_input(default_vst_id)
+                .validate(|input: &String| {
+                    if input.len() != 16 {
+                        Err("VST3 ID must be exactly 16 characters.")
+                    } else {
+                        Ok(())
+                    }
+                })
+                .interact()?;
+            let sub_categories = build_category_list(
+                "Main VST Subcategory?",
+                vec!["Fx", "Instrument", "Spatial"],
+                "Other VST Subcategories?",
+                vec![
+                    "Analyzer",
+                    "Delay",
+                    "Distortion",
+                    "Drum",
+                    "Dynamics",
+                    "Eq",
+                    "External",
+                    "Filter",
+                    "Generator",
+                    "Mastering",
+                    "Modulation",
+                    "Network",
+                    "Piano",
+                    "PitchShift",
+                    "Restoration",
+                    "Reverb",
+                    "Sampler",
+                    "Synth",
+                    "Tools",
+                    "UpDownmix",
+                ],
+                "Vst3SubCategory",
+            )?;
+            vst_data = Some(Vst3Txt {
+                plugin_name: plugin_name.clone(),
+                vst_id,
+                sub_categories,
+            });
+        }
 
-        if other_export_types.contains(&ExportTypes::Clap) {
+        // we need a series of prompts to handle CLAP export configuration.
+        if export_types.contains(&ExportTypes::Clap) {
             let default_clap_id = "com.moist-plugins-gmbh.gain";
             let default_clap_description = "A smoothed gain parameter example plugin";
             // clap id
@@ -230,7 +257,8 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
                 clap_features: clap_features.to_owned(),
             });
         }
-        if other_export_types.contains(&ExportTypes::Standalone) {
+        // finally, standalone setup
+        if export_types.contains(&ExportTypes::Standalone) {
             main_txt = Some(
                 MainTxt {
                     plugin_name: plugin_name.clone(),
@@ -238,7 +266,6 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
                 }
                 .to_string(),
             );
-            standalone = true;
         }
 
         lib = LibTxt {
@@ -246,18 +273,17 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
             vendor,
             url,
             email,
-            vst_id,
             midi_config,
-            sub_categories: vst_sub_categories,
         };
     }
     // END OF USER INPUT
 
     // now, create/modify files
     cargo_new(&project_name);
-    write_to_toml(standalone, &project_path)?;
-    write_to_lib(&project_path, &lib, clap_data)?;
+    write_to_toml(main_txt.is_some(), &project_path)?;
+    write_to_lib(&project_path, &lib, clap_data, vst_data)?;
 
+    // setting up standalone is a little different than vst/clap
     let mut main_file = File::create(project_path.join("src").join("main.rs")).unwrap();
     if let Some(main) = main_txt {
         main_file.write_all(main.as_bytes()).unwrap();
@@ -390,7 +416,12 @@ fn add_nih_plug(dependencies: &mut Table, standalone: bool) {
 
 /// Takes user input and generates a lib.rs file.
 /// The user input includes general plugin information, as well as optional CLAP info.
-fn write_to_lib(project_path: &Path, data: &LibTxt, clap_data: Option<ClapTxt>) -> Result<()> {
+fn write_to_lib(
+    project_path: &Path,
+    data: &LibTxt,
+    clap_data: Option<ClapTxt>,
+    vst_data: Option<Vst3Txt>,
+) -> Result<()> {
     // now we're going to generate our lib.rs file from our template and overwrite the existing lib.rs
     let lib_path = project_path.join("src").join("lib.rs");
     let mut lib_file = File::options().write(true).open(lib_path)?;
@@ -400,6 +431,11 @@ fn write_to_lib(project_path: &Path, data: &LibTxt, clap_data: Option<ClapTxt>) 
     if let Some(data) = clap_data {
         let clap_output = data.to_string();
         output.push_str(&clap_output);
+    }
+    // if the user configured CLAP, add it to the file.
+    if let Some(data) = vst_data {
+        let vst_output = data.to_string();
+        output.push_str(&vst_output);
     }
 
     lib_file.write_all(output.as_bytes())?;

@@ -1,0 +1,7 @@
+impl Vst3Plugin for {{self.plugin_name}} {
+    const VST3_CLASS_ID: [u8; 16] = *b"{{self.vst_id}}";
+    const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
+        &[{{self.sub_categories}}];
+}
+
+nih_export_vst3!({{self.plugin_name}});
