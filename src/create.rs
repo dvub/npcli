@@ -5,8 +5,9 @@ use std::env::set_current_dir;
 use std::io::Read;
 use std::path::Path;
 use std::{env::current_dir, fs::File, io::Write, process::Command};
+use toml::Table;
 use toml::Value::String as TomlString;
-use toml::Value::{Array, Table};
+use toml::Value::{Array, Table as VTable};
 
 #[derive(boilerplate::Boilerplate)]
 struct LibTxt {
@@ -51,6 +52,7 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
     let default_midi_config = "None";
     let default_sub_category = "Vst3SubCategory::Fx";
     // if the user supplies `--defaults`, we will use these
+    let mut standalone = false;
     let mut clap_data = None;
     let mut main_txt = None;
 
@@ -236,6 +238,7 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
                 }
                 .to_string(),
             );
+            standalone = true;
         }
 
         lib = LibTxt {
@@ -252,7 +255,7 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
 
     // now, create/modify files
     cargo_new(&project_name);
-    write_to_toml(&project_path)?;
+    write_to_toml(standalone, &project_path)?;
     write_to_lib(&project_path, &lib, clap_data)?;
 
     let mut main_file = File::create(project_path.join("src").join("main.rs")).unwrap();
@@ -319,7 +322,7 @@ fn build_category_list(
 
 /// Opens an existing Cargo.toml file, adds the `nih_plug` crate (with the github link),
 /// and adds the `cdylib` crate type.
-fn write_to_toml(project_path: &Path) -> Result<()> {
+fn write_to_toml(standalone: bool, project_path: &Path) -> Result<()> {
     // TODO:
     // figure out how to deal with all of these unwrap() calls
     //
@@ -338,19 +341,7 @@ fn write_to_toml(project_path: &Path) -> Result<()> {
         .as_table_mut()
         .unwrap();
 
-    let mut nih_plug_table = toml::Table::new();
-    nih_plug_table.insert(
-        "git".to_owned(),
-        TomlString("https://github.com/robbert-vdh/nih-plug.git".to_owned()),
-    );
-    nih_plug_table.insert(
-        "features".to_owned(),
-        Array(vec![
-            TomlString("assert_process_allocs".to_owned()),
-            TomlString("standalone".to_owned()),
-        ]),
-    );
-    dependencies.insert("nih_plug".to_owned(), Table(nih_plug_table));
+    add_nih_plug(dependencies, standalone);
 
     // 2. declare that this is a cdylib
     let mut crate_type_table = toml::Table::new();
@@ -361,7 +352,7 @@ fn write_to_toml(project_path: &Path) -> Result<()> {
             TomlString("lib".to_owned()),
         ]),
     );
-    value.insert("lib".to_owned(), Table(crate_type_table));
+    value.insert("lib".to_owned(), VTable(crate_type_table));
 
     // write it all back out
     let new_str = toml::to_string(&value).unwrap();
@@ -375,6 +366,26 @@ fn write_to_toml(project_path: &Path) -> Result<()> {
 
     file_write.write_all(new_str.as_bytes()).unwrap();
     Ok(())
+}
+
+fn add_nih_plug(dependencies: &mut Table, standalone: bool) {
+    let mut nih_plug_table = toml::Table::new();
+    nih_plug_table.insert(
+        "git".to_owned(),
+        TomlString("https://github.com/robbert-vdh/nih-plug.git".to_owned()),
+    );
+
+    // program will panic if allocation occurs on the process thread
+    // we want this feature no matter what
+    let mut features_vec = vec![TomlString("assert_process_allocs".to_owned())];
+
+    // unlike assert_process_allocs above, we only include this feature if the user wants
+    if standalone {
+        features_vec.push(TomlString("standalone".to_owned()));
+    }
+    nih_plug_table.insert("features".to_owned(), Array(features_vec));
+
+    dependencies.insert("nih_plug".to_owned(), VTable(nih_plug_table));
 }
 
 /// Takes user input and generates a lib.rs file.
