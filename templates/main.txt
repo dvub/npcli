@@ -1,3 +1,4 @@
+// MAIN
 use nih_plug::prelude::*;
 
 use {{self.project_name}}::{{self.plugin_name}};

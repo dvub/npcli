@@ -40,7 +40,7 @@ struct Vst3Txt {
 }
 
 #[derive(Clone, PartialEq, Eq)]
-enum ExportTypes {
+enum ExportType {
     Vst3,
     Clap,
     Standalone,
@@ -56,9 +56,19 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
     let default_email = "info@example.com";
     let default_vst_id = "Exactly16Chars!!";
     let default_midi_config = "None";
+    let default_sub_category = "Vst3SubCategory::Fx";
 
     // if the user supplies `--defaults`, we will use these
-    let mut vst_data = None;
+    // vst_data has to be initialized so that we have at least one export by default
+    let mut vst_data = Some(
+        Vst3Txt {
+            plugin_name: default_name.to_owned(),
+            vst_id: default_vst_id.to_owned(),
+            sub_categories: default_sub_category.to_owned(),
+        }
+        .to_string(),
+    );
+    // clap/standalone exports are not defaults
     let mut clap_data = None;
     let mut main_txt = None;
 
@@ -83,6 +93,7 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
     // TODO:
     // there is probably a way to refactor this to save on this indent,
     // i just didnt figure it out :(
+
     if !defaults {
         // get user input for basic plugin info
         intro("create-nih-plug-project").unwrap();
@@ -91,14 +102,17 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
             .placeholder(default_name)
             .default_input(default_name)
             .interact()?;
+
         let vendor: String = input("Author?")
             .placeholder(default_vendor)
             .default_input(default_vendor)
             .interact()?;
+
         let url: String = input("URL?")
             .placeholder(default_url)
             .default_input(default_url)
             .interact()?;
+
         let email: String = input("Email?")
             .placeholder(default_email)
             .default_input(default_email)
@@ -126,26 +140,89 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
 
         // beyond the basic info, we need to know which exports to set up
         let export_types = multiselect("Other export types?")
-            .item(ExportTypes::Vst3, "VST3", "")
+            .item(ExportType::Vst3, "VST3", "")
             .item(
-                ExportTypes::Clap,
+                ExportType::Clap,
                 "CLAP",
                 "See https://cleveraudio.org/ for more info",
             )
             .item(
-                ExportTypes::Standalone,
+                ExportType::Standalone,
                 "Standalone",
                 "Creates a standalone application that can run outside of a DAW/VST host",
             )
-            .initial_values(vec![ExportTypes::Vst3])
+            .initial_values(vec![ExportType::Vst3])
             .required(true)
             .interact()?;
 
+        // since VST is the default type,
+        // if the user UN-selects VST, we need to consider that
+        if !export_types.contains(&ExportType::Vst3) {
+            vst_data = None;
+        }
+
         // setup for VST
-        if export_types.contains(&ExportTypes::Vst3) {
+        if export_types.contains(&ExportType::Vst3) {
+            vst_data =
+                Some(configure_export(&project_name, &plugin_name, &ExportType::Vst3).unwrap());
+        }
+
+        // we need a series of prompts to handle CLAP export configuration.
+        if export_types.contains(&ExportType::Clap) {
+            clap_data =
+                Some(configure_export(&project_name, &plugin_name, &ExportType::Clap).unwrap());
+        }
+        // finally, standalone setup
+        if export_types.contains(&ExportType::Standalone) {
+            main_txt = Some(
+                configure_export(&project_name, &plugin_name, &ExportType::Standalone).unwrap(),
+            );
+        }
+
+        lib = LibTxt {
+            plugin_name,
+            vendor,
+            url,
+            email,
+            midi_config,
+        };
+    }
+    // END OF USER INPUT
+
+    // now, create/modify files
+    cargo_new(&project_name);
+    write_to_toml(main_txt.is_some(), &project_path)?;
+    write_to_lib(&project_path, &lib, clap_data, vst_data)?;
+
+    // setting up standalone is a little different than vst/clap
+    let mut main_file = File::create(project_path.join("src").join("main.rs")).unwrap();
+    if let Some(main) = main_txt {
+        main_file.write_all(main.as_bytes()).unwrap();
+    }
+
+    if skip_first_build {
+        return Ok(());
+    }
+
+    // finally, build the plugin
+    let args = &["--release".to_owned()];
+    set_current_dir(&project_path)?;
+    build(&[project_name.clone()], args)?;
+    bundle(&project_path.join("target"), &project_name, args, false)?;
+
+    Ok(())
+}
+
+fn configure_export(
+    project_name: &str,
+    plugin_name: &str,
+    export_type: &ExportType,
+) -> Result<String> {
+    match export_type {
+        ExportType::Vst3 => {
             let vst_id: String = input("VST ID?")
-                .placeholder(default_vst_id)
-                .default_input(default_vst_id)
+                .placeholder("default_vst_id")
+                .default_input("default_vst_id")
                 .validate(|input: &String| {
                     if input.len() != 16 {
                         Err("VST3 ID must be exactly 16 characters.")
@@ -182,15 +259,14 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
                 ],
                 "Vst3SubCategory",
             )?;
-            vst_data = Some(Vst3Txt {
-                plugin_name: plugin_name.clone(),
+            Ok(Vst3Txt {
+                plugin_name: plugin_name.to_string(),
                 vst_id,
                 sub_categories,
-            });
+            }
+            .to_string())
         }
-
-        // we need a series of prompts to handle CLAP export configuration.
-        if export_types.contains(&ExportTypes::Clap) {
+        ExportType::Clap => {
             let default_clap_id = "com.moist-plugins-gmbh.gain";
             let default_clap_description = "A smoothed gain parameter example plugin";
             // clap id
@@ -250,57 +326,22 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
                 "ClapFeature",
             )?;
 
-            clap_data = Some(ClapTxt {
-                plugin_name: plugin_name.clone(),
+            Ok(ClapTxt {
+                plugin_name: plugin_name.to_string(),
                 clap_id,
                 clap_description,
                 clap_features: clap_features.to_owned(),
-            });
+            }
+            .to_string())
         }
-        // finally, standalone setup
-        if export_types.contains(&ExportTypes::Standalone) {
-            main_txt = Some(
-                MainTxt {
-                    plugin_name: plugin_name.clone(),
-                    project_name: project_name.clone(),
-                }
-                .to_string(),
-            );
+        ExportType::Standalone => Ok(MainTxt {
+            plugin_name: plugin_name.to_string(),
+            project_name: project_name.to_string(),
         }
-
-        lib = LibTxt {
-            plugin_name,
-            vendor,
-            url,
-            email,
-            midi_config,
-        };
+        .to_string()),
     }
-    // END OF USER INPUT
-
-    // now, create/modify files
-    cargo_new(&project_name);
-    write_to_toml(main_txt.is_some(), &project_path)?;
-    write_to_lib(&project_path, &lib, clap_data, vst_data)?;
-
-    // setting up standalone is a little different than vst/clap
-    let mut main_file = File::create(project_path.join("src").join("main.rs")).unwrap();
-    if let Some(main) = main_txt {
-        main_file.write_all(main.as_bytes()).unwrap();
-    }
-
-    if skip_first_build {
-        return Ok(());
-    }
-
-    // finally, build the plugin
-    let args = &["--release".to_owned()];
-    set_current_dir(&project_path)?;
-    build(&[project_name.clone()], args)?;
-    bundle(&project_path.join("target"), &project_name, args, false)?;
-
-    Ok(())
 }
+
 // why did i document this so much??
 
 /// Creates a `select` and `multi-select` for a main category and optional categories.
@@ -419,8 +460,8 @@ fn add_nih_plug(dependencies: &mut Table, standalone: bool) {
 fn write_to_lib(
     project_path: &Path,
     data: &LibTxt,
-    clap_data: Option<ClapTxt>,
-    vst_data: Option<Vst3Txt>,
+    clap_data: Option<String>,
+    vst_data: Option<String>,
 ) -> Result<()> {
     // now we're going to generate our lib.rs file from our template and overwrite the existing lib.rs
     let lib_path = project_path.join("src").join("lib.rs");
@@ -429,13 +470,11 @@ fn write_to_lib(
 
     // if the user configured CLAP, add it to the file.
     if let Some(data) = clap_data {
-        let clap_output = data.to_string();
-        output.push_str(&clap_output);
+        output.push_str(&data);
     }
     // if the user configured CLAP, add it to the file.
     if let Some(data) = vst_data {
-        let vst_output = data.to_string();
-        output.push_str(&vst_output);
+        output.push_str(&data);
     }
 
     lib_file.write_all(output.as_bytes())?;
