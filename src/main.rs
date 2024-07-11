@@ -7,12 +7,12 @@ use clap::Parser;
 use cli::*;
 
 use create::create_project;
-use nih_plug_xtask::build;
-use nih_plug_xtask::bundle;
+// use nih_plug_xtask::build;
+// use nih_plug_xtask::bundle;
 
 // TODO:
-// - add more comments
-// - add documentation
+// - add more comments - WIP
+// - add documentation - WIP
 // - finish bundle/bundle-universal
 // - finish new() - DONE!
 //      - just have to refactor now
@@ -25,6 +25,7 @@ fn main() -> Result<()> {
             defaults,
             name,
         } => create_project(name, defaults, skip_build)?,
+        /*
         Commands::Bundle {
             packages,
             other_args,
@@ -43,6 +44,7 @@ fn main() -> Result<()> {
                 bundle(target_dir, &package, &other_args, false)?;
             }
         }
+        */
         _ => todo!(),
     };
 

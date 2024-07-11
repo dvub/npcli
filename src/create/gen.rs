@@ -81,11 +81,11 @@ fn add_nih_plug(dependencies: &mut Table, standalone: bool) {
 
 pub fn write_to_main<P: AsRef<Path>>(
     project_path: P,
-    main_txt: Option<StandaloneConfig>,
+    standalone_config: Option<StandaloneConfig>,
 ) -> Result<()> {
     // 99.9% sure that create() is ok since the file probably won't already exist
     let mut main_file = File::create(project_path.as_ref().join("src").join("main.rs"))?;
-    if let Some(main) = main_txt {
+    if let Some(main) = standalone_config {
         main_file.write_all(main.to_string().as_bytes())?;
     }
     Ok(())
@@ -95,21 +95,21 @@ pub fn write_to_main<P: AsRef<Path>>(
 /// The user input includes general plugin information, as well as optional CLAP info.
 pub fn write_to_lib<P: AsRef<Path>>(
     project_path: P,
-    lib_data: &LibConfig,
-    clap_data: Option<ClapConfig>,
-    vst_data: Option<Vst3Config>,
+    lib_config: &LibConfig,
+    clap_config: Option<ClapConfig>,
+    vst_config: Option<Vst3Config>,
 ) -> Result<()> {
     // now we're going to generate our lib.rs file from our template and overwrite the existing lib.rs
     let lib_path = project_path.as_ref().join("src").join("lib.rs");
     let mut lib_file = File::options().write(true).open(lib_path)?;
-    let mut output = lib_data.to_string();
+    let mut output = lib_config.to_string();
 
     // if the user configured CLAP, add it to the file.
-    if let Some(data) = clap_data {
+    if let Some(data) = clap_config {
         output.push_str(&data.to_string());
     }
     // if the user configured CLAP, add it to the file.
-    if let Some(data) = vst_data {
+    if let Some(data) = vst_config {
         output.push_str(&data.to_string());
     }
 

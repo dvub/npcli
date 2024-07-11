@@ -1,9 +1,92 @@
 use super::{
-    boilerplate::{ClapConfig, Vst3Config},
-    DEFAULT_CLAP_DESCRIPTION, DEFAULT_CLAP_ID, DEFAULT_VST_ID,
+    boilerplate::{ClapConfig, LibConfig, Vst3Config},
+    ExportType,
 };
 use anyhow::Result;
-use cliclack::{input, multiselect, select};
+use cliclack::{input, intro, multiselect, select};
+pub const DEFAULT_NAME: &str = "Gain";
+pub const DEFAULT_VENDOR: &str = "NIH-Plug";
+pub const DEFAULT_URL: &str = "https://github.com/robbert-vdh/nih-plug";
+pub const DEFAULT_EMAIL: &str = "info@example.com";
+pub const DEFAULT_VST_ID: &str = "Exactly16Chars!!";
+pub const DEFAULT_MIDI_CONFIG: &str = "None";
+pub const DEFAULT_SUB_CATEGORY: &str = "Vst3SubCategory::Fx";
+
+const DEFAULT_CLAP_ID: &str = "com.moist-plugins-gmbh.gain";
+const DEFAULT_CLAP_DESCRIPTION: &str = "A smoothed gain parameter example plugin";
+
+// TODO: choose a better name LMAO
+pub fn configure() -> Result<LibConfig> {
+    // get user input for basic plugin info
+    intro("create-nih-plug-project").unwrap();
+
+    let plugin_name: String = input("What's your plugin named?")
+        .placeholder(DEFAULT_NAME)
+        .default_input(DEFAULT_NAME)
+        .interact()?;
+
+    let vendor: String = input("Author?")
+        .placeholder(DEFAULT_VENDOR)
+        .default_input(DEFAULT_VENDOR)
+        .interact()?;
+
+    let url: String = input("URL?")
+        .placeholder(DEFAULT_URL)
+        .default_input(DEFAULT_URL)
+        .interact()?;
+
+    let email: String = input("Email?")
+        .placeholder(DEFAULT_EMAIL)
+        .default_input(DEFAULT_EMAIL)
+        .interact()?;
+
+    /*
+     *
+     * NOTE:
+     * Audio config is not included here,
+     * because some DAWs (Ableton, for example) do NOT support plugins with "weird" audio configs (0 outputs, etc.)
+     *
+     */
+
+    let midi_config: String = select("MIDI Config?")
+    .item("None", "None", "The plugin will not receive MIDI events.")
+    .item("Basic", "Basic", "The plugin receives note on/off/choke events, pressure, and possibly standardized expression types.")
+    .item(
+        "MidiCCs",
+        "Full",
+        "The plugin receives full MIDI CCs as well as pitch bend information.",
+    )
+    .initial_value("None")
+    .interact()?
+    .to_owned();
+    Ok(LibConfig {
+        plugin_name,
+        vendor,
+        url,
+        email,
+        midi_config,
+    })
+}
+
+pub fn collect_export_types() -> Vec<ExportType> {
+    multiselect("Other export types?")
+        .item(ExportType::Vst3, "VST3", "")
+        .item(
+            ExportType::Clap,
+            "CLAP",
+            "See https://cleveraudio.org/ for more info",
+        )
+        .item(
+            ExportType::Standalone,
+            "Standalone",
+            "Creates a standalone application that can run outside of a DAW/VST host",
+        )
+        .initial_values(vec![ExportType::Vst3])
+        .required(true)
+        .interact()
+        // TODO: fix/remove this unwrap
+        .unwrap()
+}
 
 pub fn configure_vst_export(plugin_name: &str) -> Result<Vst3Config> {
     let vst_id: String = input("VST ID?")
