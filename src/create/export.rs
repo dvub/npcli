@@ -1,11 +1,11 @@
 use super::{
-    boilerplate::{ClapTxt, Vst3Txt},
+    boilerplate::{ClapConfig, Vst3Config},
     DEFAULT_CLAP_DESCRIPTION, DEFAULT_CLAP_ID, DEFAULT_VST_ID,
 };
 use anyhow::Result;
 use cliclack::{input, multiselect, select};
 
-pub fn configure_vst_export(plugin_name: &str) -> Result<String> {
+pub fn configure_vst_export(plugin_name: &str) -> Result<Vst3Config> {
     let vst_id: String = input("VST ID?")
         .placeholder(DEFAULT_VST_ID)
         .default_input(DEFAULT_VST_ID)
@@ -45,15 +45,14 @@ pub fn configure_vst_export(plugin_name: &str) -> Result<String> {
         ],
         "Vst3SubCategory",
     )?;
-    Ok(Vst3Txt {
+    Ok(Vst3Config {
         plugin_name: plugin_name.to_string(),
         vst_id,
         sub_categories,
-    }
-    .to_string())
+    })
 }
 
-pub fn configure_clap_export(plugin_name: &str) -> Result<String> {
+pub fn configure_clap_export(plugin_name: &str) -> Result<ClapConfig> {
     // clap id
     let clap_id: String = input("CLAP ID?")
         .placeholder(DEFAULT_CLAP_ID)
@@ -111,13 +110,12 @@ pub fn configure_clap_export(plugin_name: &str) -> Result<String> {
         "ClapFeature",
     )?;
 
-    Ok(ClapTxt {
+    Ok(ClapConfig {
         plugin_name: plugin_name.to_string(),
         clap_id,
         clap_description,
         clap_features: clap_features.to_owned(),
-    }
-    .to_string())
+    })
 }
 
 // why did i document this so much??

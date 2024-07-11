@@ -3,7 +3,7 @@ mod export;
 mod gen;
 
 use anyhow::Result;
-use boilerplate::{LibTxt, MainTxt, Vst3Txt};
+use boilerplate::{LibConfig, StandaloneConfig, Vst3Config};
 use cliclack::{input, intro, multiselect, select};
 use export::{configure_clap_export, configure_vst_export};
 use gen::{cargo_new, write_to_lib, write_to_main, write_to_toml};
@@ -29,24 +29,26 @@ enum ExportType {
     Clap,
     Standalone,
 }
+/// Creates a new nih-plug project based on the following parameters:
+/// ## Parameters
+/// - `name`: The name of the *project* - that being the directory/crate to be created.
+/// - `defaults`: Setting this to true will skip any user input and just create/compile the plugin.
+/// - `skip_first_build`: Setting this option will skip the first compilation. May be helpful to save some time.
 pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bool) -> Result<()> {
     // TODO: at this top level, instead of using ? operator, actually write user-facing errors!!
 
     // if the user supplies `--defaults`, we will use these
     // vst_data has to be initialized so that we have at least one export by default
-    let mut vst_data = Some(
-        Vst3Txt {
-            plugin_name: DEFAULT_NAME.to_owned(),
-            vst_id: DEFAULT_VST_ID.to_owned(),
-            sub_categories: DEFAULT_SUB_CATEGORY.to_owned(),
-        }
-        .to_string(),
-    );
+    let mut vst_data = Some(Vst3Config {
+        plugin_name: DEFAULT_NAME.to_owned(),
+        vst_id: DEFAULT_VST_ID.to_owned(),
+        sub_categories: DEFAULT_SUB_CATEGORY.to_owned(),
+    });
     // clap/standalone exports are not defaults, so initialize them to None
     let mut clap_data = None;
-    let mut main_txt = None;
+    let mut standalone_config = None;
 
-    let mut lib = LibTxt {
+    let mut lib = LibConfig {
         plugin_name: DEFAULT_NAME.to_string(),
         vendor: DEFAULT_VENDOR.to_owned(),
         url: DEFAULT_URL.to_owned(),
@@ -62,7 +64,7 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
     );
 
     let current_dir = current_dir().unwrap();
-    let project_path = current_dir.join(&project_name);
+    let path = current_dir.join(&project_name);
 
     // TODO:
     // there is probably a way to refactor this to save on this indent,
@@ -143,16 +145,13 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
         }
         // finally, standalone setup
         if export_types.contains(&ExportType::Standalone) {
-            main_txt = Some(
-                MainTxt {
-                    plugin_name: plugin_name.to_string(),
-                    project_name: project_name.to_string(),
-                }
-                .to_string(),
-            );
+            standalone_config = Some(StandaloneConfig {
+                plugin_name: plugin_name.to_string(),
+                project_name: project_name.to_string(),
+            });
         }
 
-        lib = LibTxt {
+        lib = LibConfig {
             plugin_name,
             vendor,
             url,
@@ -160,13 +159,12 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
             midi_config,
         };
     }
-    // END OF USER INPUT
 
     // now, create/modify files
     cargo_new(&project_name);
-    write_to_toml(main_txt.is_some(), &project_path)?;
-    write_to_lib(&project_path, &lib, clap_data, vst_data)?;
-    write_to_main(&project_path, main_txt)?;
+    write_to_toml(standalone_config.is_some(), &path)?;
+    write_to_lib(&path, &lib, clap_data, vst_data)?;
+    write_to_main(&path, standalone_config)?;
 
     if skip_first_build {
         return Ok(());
@@ -174,9 +172,9 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
 
     // finally, build the plugin
     let args = &["--release".to_owned()];
-    set_current_dir(&project_path)?;
+    set_current_dir(&path)?;
     build(&[project_name.clone()], args)?;
-    bundle(&project_path.join("target"), &project_name, args, false)?;
+    bundle(&path.join("target"), &project_name, args, false)?;
 
     Ok(())
 }

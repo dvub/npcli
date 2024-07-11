@@ -1,3 +1,4 @@
+use super::boilerplate::{ClapConfig, LibConfig, StandaloneConfig, Vst3Config};
 use anyhow::Result;
 use std::io::Read;
 use std::path::Path;
@@ -7,22 +8,20 @@ use toml::Table;
 use toml::Value::String as TomlString;
 use toml::Value::{Array, Table as VTable};
 
-use super::boilerplate::LibTxt;
-
 // i may have overcomplicated this part by quite a lot,
 // but eh
 // an easier thing to do would have been to use a templated Cargo.toml file or something.
 
 /// Opens an existing Cargo.toml file, adds the `nih_plug` crate (with the github link),
 /// and adds the `cdylib` crate type.
-pub fn write_to_toml(standalone: bool, project_path: &Path) -> Result<()> {
+pub fn write_to_toml<P: AsRef<Path>>(standalone: bool, project_path: P) -> Result<()> {
     // TODO:
     // figure out how to deal with all of these unwrap() calls
     //
     // prereq: open file, read into a string, and parse the string with toml
     let mut file_read = File::options()
         .read(true)
-        .open(project_path.join("Cargo.toml"))?;
+        .open(project_path.as_ref().join("Cargo.toml"))?;
     let mut str_contents = String::new();
     file_read.read_to_string(&mut str_contents)?;
     let mut value = str_contents.parse::<toml::Table>()?;
@@ -54,7 +53,7 @@ pub fn write_to_toml(standalone: bool, project_path: &Path) -> Result<()> {
     let mut file_write = File::options()
         .truncate(true)
         .write(true)
-        .open(project_path.join("Cargo.toml"))
+        .open(project_path.as_ref().join("Cargo.toml"))
         .unwrap();
 
     file_write.write_all(new_str.as_bytes()).unwrap();
@@ -80,35 +79,38 @@ fn add_nih_plug(dependencies: &mut Table, standalone: bool) {
     dependencies.insert("nih_plug".to_owned(), VTable(nih_plug_table));
 }
 
-pub fn write_to_main(project_path: &Path, main_txt: Option<String>) -> Result<()> {
+pub fn write_to_main<P: AsRef<Path>>(
+    project_path: P,
+    main_txt: Option<StandaloneConfig>,
+) -> Result<()> {
     // 99.9% sure that create() is ok since the file probably won't already exist
-    let mut main_file = File::create(project_path.join("src").join("main.rs"))?;
+    let mut main_file = File::create(project_path.as_ref().join("src").join("main.rs"))?;
     if let Some(main) = main_txt {
-        main_file.write_all(main.as_bytes())?;
+        main_file.write_all(main.to_string().as_bytes())?;
     }
     Ok(())
 }
 
 /// Takes user input and generates a lib.rs file.
 /// The user input includes general plugin information, as well as optional CLAP info.
-pub fn write_to_lib(
-    project_path: &Path,
-    data: &LibTxt,
-    clap_data: Option<String>,
-    vst_data: Option<String>,
+pub fn write_to_lib<P: AsRef<Path>>(
+    project_path: P,
+    lib_data: &LibConfig,
+    clap_data: Option<ClapConfig>,
+    vst_data: Option<Vst3Config>,
 ) -> Result<()> {
     // now we're going to generate our lib.rs file from our template and overwrite the existing lib.rs
-    let lib_path = project_path.join("src").join("lib.rs");
+    let lib_path = project_path.as_ref().join("src").join("lib.rs");
     let mut lib_file = File::options().write(true).open(lib_path)?;
-    let mut output = data.to_string();
+    let mut output = lib_data.to_string();
 
     // if the user configured CLAP, add it to the file.
     if let Some(data) = clap_data {
-        output.push_str(&data);
+        output.push_str(&data.to_string());
     }
     // if the user configured CLAP, add it to the file.
     if let Some(data) = vst_data {
-        output.push_str(&data);
+        output.push_str(&data.to_string());
     }
 
     lib_file.write_all(output.as_bytes())?;
