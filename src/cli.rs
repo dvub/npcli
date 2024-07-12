@@ -1,6 +1,6 @@
 use clap::{command, Parser, Subcommand};
 
-/// NIH-Plug CLI.
+/// NIH-Plug CLI
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 pub struct Cli {
@@ -11,8 +11,7 @@ pub struct Cli {
 pub enum Commands {
     /// Create a new NIH-Plug project.
     New {
-        /// Enabling this will skip ALL of the custom input and simply create a project with the default inputs.
-        ///
+        /// Enabling this will skip all user input and simply create a project with defaults.
         #[arg(short, long, requires = "name")]
         defaults: bool,
 
@@ -21,7 +20,7 @@ pub enum Commands {
         name: Option<String>,
 
         /// Use this flag if you want to skip initial compilation.
-        #[arg(long)]
+        #[arg(short, long)]
         skip_build: bool,
     },
     /// Compile an existing NIH-Plug project

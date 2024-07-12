@@ -4,14 +4,16 @@ mod gen;
 
 use anyhow::Result;
 use boilerplate::{LibConfig, StandaloneConfig, Vst3Config};
-use cliclack::input;
-use config::{collect_export_types, configure};
+use cliclack::log::info;
+use cliclack::{confirm, input};
+use colored::Colorize;
+use config::{collect_export_types, configure_lib};
 use config::{configure_clap_export, configure_vst_export};
 use gen::{cargo_new, write_to_lib, write_to_main, write_to_toml};
 use nih_plug_xtask::{build, bundle};
 use std::env::current_dir;
 use std::env::set_current_dir;
-
+use std::fs::remove_dir_all;
 // is a whole enum for this really needed?
 #[derive(Clone, PartialEq, Eq)]
 enum ExportType {
@@ -35,44 +37,72 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
     let mut clap_config = None;
     let mut standalone_config = None;
 
-    let project_name: String = name.unwrap_or(
-        input("What's your project named? (NOT the actual plugin name)")
-            .placeholder("gain")
+    let project_name: String = if let Some(name) = name {
+        name
+    } else {
+        let name_prompt = format!(
+            "What's your {} named? ({} the same as your {})",
+            "project".bold(),
+            "not".bold(),
+            "plugin's name".italic()
+        );
+        input(name_prompt)
             .required(true)
-            .interact()?,
-    );
+            .placeholder("gain")
+            .interact()?
+    };
 
     let current_dir = current_dir().unwrap();
     let path = current_dir.join(&project_name);
+
+    if path.exists() {
+        let delete_prompt = format!(
+            "The directory \"{}\" already exists. Would you like to overwrite it? {}",
+            project_name,
+            "This will delete all existing contents!".red().bold()
+        );
+        let delete_dir = confirm(delete_prompt).initial_value(false).interact()?;
+
+        let absolutely_sure = confirm("Are you absolutely sure?".italic())
+            .initial_value(false)
+            .interact()?;
+
+        if delete_dir && absolutely_sure {
+            info("Removing contents...")?;
+            remove_dir_all(&path)?;
+        } else {
+            info("Exiting... If you'd like to continue, please choose a different project/directory name.")?;
+            return Ok(());
+        }
+    }
 
     // TODO:
     // there is probably a way to refactor this to save on this indent,
     // i just didnt figure it out :(
 
     if !defaults {
-        lib_config = configure()?;
-
+        lib_config = configure_lib()?;
+        let plugin_name = lib_config.plugin_name.clone();
         // beyond the basic info, we need to know which exports to set up
         let export_types = collect_export_types();
         // update vst config
         vst_config = if export_types.contains(&ExportType::Vst3) {
-            Some(configure_vst_export(&project_name)?)
+            Some(configure_vst_export(&plugin_name)?)
         } else {
             // since VST is the default type,
             // if the user UN-selects VST, we need to consider that
             None
         };
-
         // handle CLAP configuration/code generation
         if export_types.contains(&ExportType::Clap) {
-            clap_config = Some(configure_clap_export(&project_name)?);
+            clap_config = Some(configure_clap_export(&plugin_name)?);
         }
 
         // finally, standalone setup
         if export_types.contains(&ExportType::Standalone) {
             standalone_config = Some(StandaloneConfig {
                 // TODO: don't clone here, this looks stupid
-                plugin_name: lib_config.clone().plugin_name,
+                plugin_name,
                 project_name: project_name.to_string(),
             });
         }

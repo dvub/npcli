@@ -16,7 +16,7 @@ const DEFAULT_CLAP_ID: &str = "com.moist-plugins-gmbh.gain";
 const DEFAULT_CLAP_DESCRIPTION: &str = "A smoothed gain parameter example plugin";
 
 // TODO: choose a better name LMAO
-pub fn configure() -> Result<LibConfig> {
+pub fn configure_lib() -> Result<LibConfig> {
     // get user input for basic plugin info
     intro("create-nih-plug-project").unwrap();
 
