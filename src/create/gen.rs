@@ -35,15 +35,14 @@ pub fn write_to_toml<P: AsRef<Path>>(standalone: bool, project_path: P) -> Resul
 
     add_nih_plug(dependencies, standalone);
 
+    let mut crate_type = vec![TomlString("cdylib".to_owned())];
+    if standalone {
+        crate_type.push(TomlString("lib".to_owned()));
+    }
+
     // 2. declare that this is a cdylib
     let mut crate_type_table = toml::Table::new();
-    crate_type_table.insert(
-        "crate_type".to_owned(),
-        Array(vec![
-            TomlString("cdylib".to_owned()),
-            TomlString("lib".to_owned()),
-        ]),
-    );
+    crate_type_table.insert("crate_type".to_owned(), Array(crate_type));
     value.insert("lib".to_owned(), VTable(crate_type_table));
 
     // write it all back out
@@ -84,8 +83,8 @@ pub fn write_to_main<P: AsRef<Path>>(
     standalone_config: Option<StandaloneConfig>,
 ) -> Result<()> {
     // 99.9% sure that create() is ok since the file probably won't already exist
-    let mut main_file = File::create(project_path.as_ref().join("src").join("main.rs"))?;
     if let Some(main) = standalone_config {
+        let mut main_file = File::create(project_path.as_ref().join("src").join("main.rs"))?;
         main_file.write_all(main.to_string().as_bytes())?;
     }
     Ok(())
