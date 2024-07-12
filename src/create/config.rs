@@ -18,8 +18,6 @@ const DEFAULT_CLAP_DESCRIPTION: &str = "A smoothed gain parameter example plugin
 // TODO: choose a better name LMAO
 pub fn configure_lib() -> Result<LibConfig> {
     // get user input for basic plugin info
-    intro("create-nih-plug-project").unwrap();
-
     let plugin_name: String = input("What's your plugin named?")
         .placeholder(DEFAULT_NAME)
         .default_input(DEFAULT_NAME)

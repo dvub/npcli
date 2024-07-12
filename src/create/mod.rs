@@ -4,7 +4,7 @@ mod gen;
 
 use anyhow::Result;
 use boilerplate::{LibConfig, StandaloneConfig, Vst3Config};
-use cliclack::log::info;
+use cliclack::log::{error, info};
 use cliclack::{confirm, input};
 use colored::Colorize;
 use config::{collect_export_types, configure_lib};
@@ -110,14 +110,23 @@ pub fn create_project(name: Option<String>, defaults: bool, skip_first_build: bo
 
     // now, create/modify files
     cargo_new(&project_name);
+    println!("Created a new project...");
+
     write_to_toml(standalone_config.is_some(), &path)?;
+    println!("Updated Cargo.toml...");
+
     write_to_lib(&path, &lib_config, clap_config, vst_config)?;
+    println!("Updated lib.rs...");
+
     write_to_main(&path, standalone_config)?;
+    //.unwrap_or(error("There was an error writing to main.rs")?);
+    println!("Created main.rs...");
 
     if skip_first_build {
         return Ok(());
     }
 
+    println!("Beginning build...");
     // finally, build the plugin
     let args = &["--release".to_owned()];
     set_current_dir(&path)?;
