@@ -42,7 +42,7 @@ pub fn write_to_toml<P: AsRef<Path>>(standalone: bool, project_path: P) -> Resul
 
     // 2. declare that this is a cdylib
     let mut crate_type_table = toml::Table::new();
-    crate_type_table.insert("crate_type".to_owned(), Array(crate_type));
+    crate_type_table.insert("crate-type".to_owned(), Array(crate_type));
     value.insert("lib".to_owned(), VTable(crate_type_table));
 
     // write it all back out
